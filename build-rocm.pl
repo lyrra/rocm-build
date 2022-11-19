@@ -60,7 +60,7 @@ my $AMDGPU_TARGETS = "gfx1031";
 my $dry_run = 0; # dont run any commands, just compile an output bash script
 my $verbose = 1; # be more verbose
 my $makethreads = 8; # make -j
-my $print_patches = 0; # print out patches that can be useful to apply
+my $apply_patches = 1; # apply patches in patches/ directory to the ROCm git repos before compiling
 
 my $rocclr_pkg = "$ROCM_GIT_DIR/ROCclr/build";
 my $OPENCL_DIR = "$ROCM_GIT_DIR/ROCm-OpenCL-Runtime";
@@ -232,24 +232,20 @@ my %conf = (
 );
 
 ########################################
-# handle patches
+print "Applying patches..\n";
 
-if($print_patches){
-  my %patches = ();
-
-  my $dir = 0;
-  while(my $line = <DATA>){
-    chomp $line;
-    next if($line =~ /^#/); # skip comments
-    if($line =~ /^PATCH\s+BEGIN\s+DIR\s+(.*)\s*$/){
-      $dir = $1;
-      print "### patch system $dir ###\n";
-    }elsif($line =~ /^PATCH\s+ENDs*$/){
-      $dir = 0;
-    }else{
-      print "$line\n";
-      push(@{$patches{$dir}}, $line);
+if($apply_patches){
+  foreach my $patchfile (`ls patches/*.diff`) {
+    chomp $patchfile;
+    my ($targetdir) = ($patchfile =~ /^patches\/(.*)\.diff/);
+    print "applying patch $patchfile to targetdir $targetdir\n";
+    dir_push("../$targetdir");
+    system("patch -p1 --dry-run < ../tools/$patchfile");
+    if ($? != 0){
+      mydie("Failed to apply patch $patchfile");
     }
+    system("patch -p1 < ../tools/$patchfile");
+    dir_pop();
   }
 }
 
@@ -349,7 +345,7 @@ sub cmd {
 
 sub mydie {
   printcolor(1, 31, $_[0]);
-  die;
+  die "\n";
 }
 
 sub printcolor {
@@ -374,152 +370,3 @@ sub printred {
   printcolor(0, 31, $_[0]);
 }
 
-__DATA__
-
-###########################################################################
-###########################################################################
-###########################################################################
-
-# Patches
-
-#### ROCclr needs patching of its included elfio headers
-PATCH BEGIN DIR ROCclr
-diff --git a/elf/elfio/elfio.hpp b/elf/elfio/elfio.hpp
-index 3ed1fb0e..ff2acec4 100644
---- a/elf/elfio/elfio.hpp
-+++ b/elf/elfio/elfio.hpp
-@@ -40,12 +40,12 @@ THE SOFTWARE.
- #include <deque>
- #include <iterator>
- 
--#include <elfio/elf_types.hpp>
--#include <elfio/elfio_utils.hpp>
--#include <elfio/elfio_header.hpp>
--#include <elfio/elfio_section.hpp>
--#include <elfio/elfio_segment.hpp>
--#include <elfio/elfio_strings.hpp>
-+#include <elf/elfio/elf_types.hpp>
-+#include <elf/elfio/elfio_utils.hpp>
-+#include <elf/elfio/elfio_header.hpp>
-+#include <elf/elfio/elfio_section.hpp>
-+#include <elf/elfio/elfio_segment.hpp>
-+#include <elf/elfio/elfio_strings.hpp>
- 
- #define ELFIO_HEADER_ACCESS_GET( TYPE, FNAME ) \
- TYPE                                           \
-@@ -944,10 +944,10 @@ class elfio
- } // namespace ELFIO
- } // namespace amd
- 
--#include <elfio/elfio_symbols.hpp>
--#include <elfio/elfio_note.hpp>
--#include <elfio/elfio_relocation.hpp>
--#include <elfio/elfio_dynamic.hpp>
-+#include <elf/elfio/elfio_symbols.hpp>
-+#include <elf/elfio/elfio_note.hpp>
-+#include <elf/elfio/elfio_relocation.hpp>
-+#include <elf/elfio/elfio_dynamic.hpp>
- 
- #ifdef _MSC_VER
- #pragma warning ( pop )
-PATCH END
-
-#### Patching HIP, to avoid removing the installed include dir
-#### which wipes out previous installations
-#### Also need to search proper directories to find HSA
-PATCH BEGIN DIR HIP
-diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 91813837..fed27260 100755
---- a/CMakeLists.txt
-+++ b/CMakeLists.txt
-@@ -334,8 +334,8 @@ if(NOT ${INSTALL_SOURCE} EQUAL 0)
-     install(DIRECTORY bin DESTINATION . USE_SOURCE_PERMISSIONS)
- 
-     # The following two lines will be removed after upstream updation
--    install(CODE "MESSAGE(\"Removing ${CMAKE_INSTALL_PREFIX}/include\")")
--    install(CODE "file(REMOVE_RECURSE ${CMAKE_INSTALL_PREFIX}/include)")
-+    # install(CODE "MESSAGE(\"Removing ${CMAKE_INSTALL_PREFIX}/include\")")
-+    # install(CODE "file(REMOVE_RECURSE ${CMAKE_INSTALL_PREFIX}/include)")
- 
-     install(DIRECTORY include DESTINATION .)
-     install(DIRECTORY cmake DESTINATION .)
-diff --git a/hip-config.cmake.in b/hip-config.cmake.in
-index e6962268..9f9678b3 100755
---- a/hip-config.cmake.in
-+++ b/hip-config.cmake.in
-@@ -18,6 +18,8 @@
- # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- # THE SOFTWARE.
- 
-+set(CMAKE_VERBOSE_MAKEFILE ON)
-+
- @PACKAGE_INIT@
- include(CheckCXXCompilerFlag)
- include(CMakeFindDependencyMacro OPTIONAL RESULT_VARIABLE _CMakeFindDependencyMacro_FOUND)
-@@ -147,12 +149,14 @@ endif()
- get_filename_component(_DIR "${CMAKE_CURRENT_LIST_DIR}" REALPATH)
- get_filename_component(_IMPORT_PREFIX "${_DIR}/../../../" REALPATH)
- 
-+message("------- import_prefix: ${_IMPORT_PREFIX} ------")
- # Windows doesn't need HSA
- if(NOT WIN32)
-   #if HSA is not under ROCm then provide CMAKE_PREFIX_PATH=<HSA_PATH>
-   find_path(HSA_HEADER hsa/hsa.h
-     PATHS
-       "${_IMPORT_PREFIX}/../include"
-+      ${ROCM_PATH}/include
-       /opt/rocm/include
-   )
- 
-@@ -185,8 +189,8 @@ if(HIP_RUNTIME MATCHES "rocclr")
- 
-   if(NOT WIN32)
-     set_target_properties(hip::device PROPERTIES
--      INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/../include"
--      INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/../include"
-+      INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include"
-+      INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include"
-     )
-   endif()
- endif()
-@@ -228,11 +232,11 @@ if(HIP_COMPILER STREQUAL "clang")
-   )
- 
-   set_property(TARGET hip::device APPEND PROPERTY
--    INTERFACE_INCLUDE_DIRECTORIES "${HIP_CLANG_INCLUDE_PATH}/.."
-+    INTERFACE_INCLUDE_DIRECTORIES "${HIP_CLANG_INCLUDE_PATH}"
-   )
- 
-   set_property(TARGET hip::device APPEND PROPERTY
--    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${HIP_CLANG_INCLUDE_PATH}/.."
-+    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${HIP_CLANG_INCLUDE_PATH}"
-   )
- 
-   foreach(GPU_TARGET ${GPU_TARGETS})
-diff --git a/hip-lang-config.cmake.in b/hip-lang-config.cmake.in
-index 9d3c9cc2..e832a933 100644
---- a/hip-lang-config.cmake.in
-+++ b/hip-lang-config.cmake.in
-@@ -17,6 +17,8 @@
- # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- # THE SOFTWARE.
- 
-+set(CMAKE_VERBOSE_MAKEFILE ON)
-+
- @PACKAGE_INIT@
- include(CMakeFindDependencyMacro OPTIONAL RESULT_VARIABLE _CMakeFindDependencyMacro_FOUND)
- if (NOT _CMakeFindDependencyMacro_FOUND)
-@@ -83,10 +85,12 @@ if( DEFINED ENV{ROCM_PATH} )
-   set(ROCM_PATH "$ENV{ROCM_PATH}")
- endif()
- 
-+message("------- import_prefix: ${_IMPORT_PREFIX} ------")
- #if HSA is not under ROCm then provide CMAKE_PREFIX_PATH=<HSA_PATH>
- find_path(HSA_HEADER hsa/hsa.h
-   PATHS
-     "${_IMPORT_PREFIX}/../include"
-+    ${ROCM_PATH}/include
-     /opt/rocm/include
- )
- 
-PATCH END

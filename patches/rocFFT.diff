@@ -1,0 +1,12 @@
+diff --git a/library/src/device/generator/stockham_gen_base.h b/library/src/device/generator/stockham_gen_base.h
+index 3f002ab..2e798d4 100644
+--- a/library/src/device/generator/stockham_gen_base.h
++++ b/library/src/device/generator/stockham_gen_base.h
+@@ -20,6 +20,7 @@
+ 
+ #pragma once
+ #include "stockham_gen.h"
++#include <cmath>
+ 
+ // Base class for stockham kernels.  Subclasses are responsible for
+ // different tiling types.

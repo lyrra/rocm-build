@@ -1,0 +1,94 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 91813837..fed27260 100755
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -334,8 +334,8 @@ if(NOT ${INSTALL_SOURCE} EQUAL 0)
+     install(DIRECTORY bin DESTINATION . USE_SOURCE_PERMISSIONS)
+ 
+     # The following two lines will be removed after upstream updation
+-    install(CODE "MESSAGE(\"Removing ${CMAKE_INSTALL_PREFIX}/include\")")
+-    install(CODE "file(REMOVE_RECURSE ${CMAKE_INSTALL_PREFIX}/include)")
++    # install(CODE "MESSAGE(\"Removing ${CMAKE_INSTALL_PREFIX}/include\")")
++    # install(CODE "file(REMOVE_RECURSE ${CMAKE_INSTALL_PREFIX}/include)")
+ 
+     install(DIRECTORY include DESTINATION .)
+     install(DIRECTORY cmake DESTINATION .)
+diff --git a/hip-config.cmake.in b/hip-config.cmake.in
+index e6962268..9f9678b3 100755
+--- a/hip-config.cmake.in
++++ b/hip-config.cmake.in
+@@ -18,6 +18,8 @@
+ # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ # THE SOFTWARE.
+ 
++set(CMAKE_VERBOSE_MAKEFILE ON)
++
+ @PACKAGE_INIT@
+ include(CheckCXXCompilerFlag)
+ include(CMakeFindDependencyMacro OPTIONAL RESULT_VARIABLE _CMakeFindDependencyMacro_FOUND)
+@@ -147,12 +149,14 @@ endif()
+ get_filename_component(_DIR "${CMAKE_CURRENT_LIST_DIR}" REALPATH)
+ get_filename_component(_IMPORT_PREFIX "${_DIR}/../../../" REALPATH)
+ 
++message("------- import_prefix: ${_IMPORT_PREFIX} ------")
+ # Windows doesn't need HSA
+ if(NOT WIN32)
+   #if HSA is not under ROCm then provide CMAKE_PREFIX_PATH=<HSA_PATH>
+   find_path(HSA_HEADER hsa/hsa.h
+     PATHS
+       "${_IMPORT_PREFIX}/../include"
++      ${ROCM_PATH}/include
+       /opt/rocm/include
+   )
+ 
+@@ -185,8 +189,8 @@ if(HIP_RUNTIME MATCHES "rocclr")
+ 
+   if(NOT WIN32)
+     set_target_properties(hip::device PROPERTIES
+-      INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/../include"
+-      INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/../include"
++      INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include"
++      INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include"
+     )
+   endif()
+ endif()
+@@ -228,11 +232,11 @@ if(HIP_COMPILER STREQUAL "clang")
+   )
+ 
+   set_property(TARGET hip::device APPEND PROPERTY
+-    INTERFACE_INCLUDE_DIRECTORIES "${HIP_CLANG_INCLUDE_PATH}/.."
++    INTERFACE_INCLUDE_DIRECTORIES "${HIP_CLANG_INCLUDE_PATH}"
+   )
+ 
+   set_property(TARGET hip::device APPEND PROPERTY
+-    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${HIP_CLANG_INCLUDE_PATH}/.."
++    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${HIP_CLANG_INCLUDE_PATH}"
+   )
+ 
+   foreach(GPU_TARGET ${GPU_TARGETS})
+diff --git a/hip-lang-config.cmake.in b/hip-lang-config.cmake.in
+index 9d3c9cc2..e832a933 100644
+--- a/hip-lang-config.cmake.in
++++ b/hip-lang-config.cmake.in
+@@ -17,6 +17,8 @@
+ # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ # THE SOFTWARE.
+ 
++set(CMAKE_VERBOSE_MAKEFILE ON)
++
+ @PACKAGE_INIT@
+ include(CMakeFindDependencyMacro OPTIONAL RESULT_VARIABLE _CMakeFindDependencyMacro_FOUND)
+ if (NOT _CMakeFindDependencyMacro_FOUND)
+@@ -83,10 +85,12 @@ if( DEFINED ENV{ROCM_PATH} )
+   set(ROCM_PATH "$ENV{ROCM_PATH}")
+ endif()
+ 
++message("------- import_prefix: ${_IMPORT_PREFIX} ------")
+ #if HSA is not under ROCm then provide CMAKE_PREFIX_PATH=<HSA_PATH>
+ find_path(HSA_HEADER hsa/hsa.h
+   PATHS
+     "${_IMPORT_PREFIX}/../include"
++    ${ROCM_PATH}/include
+     /opt/rocm/include
+ )
+ 

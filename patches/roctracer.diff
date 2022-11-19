@@ -1,0 +1,26 @@
+diff --git a/inc/roctracer_hip.h b/inc/roctracer_hip.h
+index 391831b..0dfff96 100644
+--- a/inc/roctracer_hip.h
++++ b/inc/roctracer_hip.h
+@@ -38,7 +38,7 @@ inline static std::ostream& operator<<(std::ostream& out, const char& v) {
+ #endif  // __cplusplus
+ 
+ #include <hip/hip_runtime.h>
+-#include <hip_ostream_ops.h>
++//#include <hip_ostream_ops.h>
+ #include <hip/amd_detail/hip_prof_str.h>
+ 
+ #include <roctracer.h>
+diff --git a/src/proxy/proxy_queue.h b/src/proxy/proxy_queue.h
+index f876ab6..2fe1533 100644
+--- a/src/proxy/proxy_queue.h
++++ b/src/proxy/proxy_queue.h
+@@ -23,7 +23,7 @@ THE SOFTWARE.
+ #ifndef _SRC_CORE_PROXY_QUEUE_H
+ #define _SRC_CORE_PROXY_QUEUE_H
+ 
+-#include <hsa.h>
++#include <hsa/hsa.h>
+ #include <hsa_api_trace.h>
+ #include <atomic>
+ #include <map>
