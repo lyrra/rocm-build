@@ -1,0 +1,3 @@
+export ROCM_PATH=/rocm4
+export PATH=$ROCM_PATH/bin:$PATH
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$ROCM_PATH/lib
