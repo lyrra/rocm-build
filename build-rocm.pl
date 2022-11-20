@@ -41,14 +41,18 @@
 # to find out the architecture in your object file, inspect the ELF-e_flags in the elf-header.
 # to see how HIP resolves this, see the function getProcName in HIP/rocclr/hip_code_object.cpp
 
+# gfx1030 and gfx1031 has the same ISA, and can share code:
+# To use gfx1030 code on the gfx1031 hardware (RX 6700 XT):
+# export HSA_OVERRIDE_GFX_VERSION=10.3.0
+
 use strict;
 use warnings;
 use Cwd;
 
 ##############################################################################
 ### *** YOU MUST configure these: ***
-my $ROCM_GIT_DIR = "/d/rocm"; # Where you have all ROCm git repositories
-my $ROCM_INSTALL_DIR = "/d/rocm4"; # Where you want ROCm to be installed
+my $ROCM_GIT_DIR = "/d/rocm-src-5"; # Where you have all ROCm git repositories
+my $ROCM_INSTALL_DIR = "/d/rocm5"; # Where you want ROCm to be installed
 
 # amd technology list, of pairs: graphicsArchitecture-gpuCodename-computeArchitecture
 # (gfx803-polaris21-gcn4 gfx900-vega10-gcn5 gfx906-vega20-gcn5 gfx1010-navi10-rdna1 gfx1030-navi21-rdna2 gfx1031-navi22-rdna2 gfx1032-navi23-rdna2)
@@ -62,10 +66,15 @@ my $verbose = 1; # be more verbose
 my $makethreads = 8; # make -j
 my $apply_patches = 1; # apply patches in patches/ directory to the ROCm git repos before compiling
 
+my $rocm_src_dir = "..";
 my $rocclr_pkg = "$ROCM_GIT_DIR/ROCclr/build";
 my $OPENCL_DIR = "$ROCM_GIT_DIR/ROCm-OpenCL-Runtime";
+my $HIP_DIR = "$ROCM_GIT_DIR/HIP";
+my $ROCCLR_DIR = "$ROCM_GIT_DIR/ROCclr";
+my $gittag = "rocm-5.3.3";
 # cmake defines
-my $hip_compiler  = " -DHIP_COMPILER=clang";
+#my $hip_compiler  = " -DHIP_COMPILER=clang";
+my $hip_compiler  = " -DHIP_COMPILER=hipcc";
 my $hip_platform  = " -DHIP_PLATFORM=amd";
 my $rocm_path     = " -DROCM_PATH=$ROCM_INSTALL_DIR";
 my $hsa_path      = " -DHSA_PATH=$ROCM_INSTALL_DIR";
@@ -75,7 +84,7 @@ my $install_dir   = " -DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR";
 
 # environemnt
 
-# neede by rocBLAS (hipvars.pm uses HIP_PATH)
+# needed by rocBLAS (hipvars.pm uses HIP_PATH)
 $ENV{ROCM_PATH} = $ROCM_INSTALL_DIR;
 $ENV{LD_LIBRARY_PATH} = "$ROCM_INSTALL_DIR/lib";
 #$ENV{TENSILE_ROCM_ASSEMBLER_PATH} = "$ROCM_INSTALL_DIR/bin/llvm-as";
@@ -86,6 +95,7 @@ $ENV{PATH} = "$ROCM_INSTALL_DIR/bin:$ROCM_INSTALL_DIR/llvm/bin:$ENV{PATH}";
 
 my $build_continue = 0;
 foreach my $arg (@ARGV) {
+  $apply_patches = 0  if($arg eq "-p");
   $build_continue = 1 if($arg eq "-m");
 }
 
@@ -100,8 +110,9 @@ my %conf = (
   #    $ROCM_GIT_DIR/llvm-project/llvm
   "llvm-project" =>
   { order => 1,
+    gitrepo => "https://github.com/RadeonOpenCompute/llvm-project.git",
     installdir => "/llvm", # relative to (on-top-of) ${ROCM_INSTALL_DIR}
-    misc => "-DLLVM_ENABLE_ASSERTIONS=1 -DLLVM_TARGETS_TO_BUILD=\"AMDGPU;X86\" -DLLVM_ENABLE_PROJECTS=\"compiler-rt;lld;clang\"",
+    misc => "-DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=1 -DLLVM_TARGETS_TO_BUILD=\"AMDGPU;X86\" -DLLVM_ENABLE_PROJECTS=\"compiler-rt;lld;clang\"",
     srcdir => "llvm",
     compiler => "use-system"
   },
@@ -113,13 +124,14 @@ my %conf = (
   #   amdgpu, amdkfd, amdkcl (git upstream https://github.com/RadeonOpenCompute/ROCK-Kernel-Driver)
   "ROCT-Thunk-Interface" =>
   { order => 2,
+    gitrepo => "https://github.com/RadeonOpenCompute/ROCT-Thunk-Interface.git"
   },
   ###################################
   "rocm-cmake" =>
   { order => 3,
+    gitrepo => "https://github.com/RadeonOpenCompute/rocm-cmake.git"
   },
   ###################################
-
   "ROCm-Device-Libs" =>
   { order => 4,
     cmake_defines => ["ROCM_PATH=$ROCM_INSTALL_DIR",
@@ -128,12 +140,14 @@ my %conf = (
                       # ${LLD_INCLUDE_DIRS}
                      ],
     misc => $hip_clang_inc,
-    pkgprefix => "$ROCM_INSTALL_DIR/llvm"
+    pkgprefix => "$ROCM_INSTALL_DIR/llvm",
+    gitrepo => "https://github.com/RadeonOpenCompute/ROCm-Device-Libs.git"
   },
   ###################################
   # ROCR-Runtime needs hsakmt.h which is provided by the thunk.
   "ROCR-Runtime" =>
   { order => 5,
+    gitrepo => "https://github.com/RadeonOpenCompute/ROCR-Runtime.git",
     compiler => "use-system", # if using clang: error: unknown warning option '-Werror=unused-but-set-variable'
     depends => "ROCT-Thunk-Interface",
     needs => ["deb:libelf-dev"],
@@ -143,10 +157,12 @@ my %conf = (
   ###################################
   "rocminfo" =>
   { order => 6,
+    gitrepo => "https://github.com/RadeonOpenCompute/rocminfo.git"
   },
   ###################################
   "ROCm-CompilerSupport" =>
   { order => 7,
+    gitrepo => "https://github.com/RadeonOpenCompute/ROCm-CompilerSupport.git",
     cmake_defines => ["LLVM_INCLUDE_DIRS=$ROCM_INSTALL_DIR/llvm/include",
                       "LLVM_INSTALL_PREFIX=$ROCM_INSTALL_DIR/llvm",
                       # ${CLANG_INCLUDE_DIRS}
@@ -157,20 +173,26 @@ my %conf = (
     pkgprefix => "$ROCM_INSTALL_DIR/llvm",
     misc => $hip_clang_inc,
   },
-  ###################################
-  # Needs amd_comgr.h provided by ROCm-CompilerSupport/build/include/amd_comgr.h
-  "ROCclr" =>
-  { order => 8,
-    funcs => $d_opencl_dir,
-  },
+#  ###################################
+#  # Needs amd_comgr.h provided by ROCm-CompilerSupport/build/include/amd_comgr.h
+#  "ROCclr" =>
+#  { order => 8,
+#    gitrepo => "https://github.com/ROCm-Developer-Tools/ROCclr.git",
+#    funcs => $d_opencl_dir,
+#  },
   ###################################
   # HIP needs platform/runtime.hpp provided by ROCclr/platform/runtime.hpp
-  "HIP" =>
+  #"HIP" =>
+  "hipamd" =>
   { order => 9,
+    gitrepo => "https://github.com/ROCm-Developer-Tools/hipamd.git",
+    deprepos => ["https://github.com/ROCm-Developer-Tools/HIP.git",
+                 "https://github.com/ROCm-Developer-Tools/ROCclr.git",
+                 "https://github.com/RadeonOpenCompute/ROCm-OpenCL-Runtime.git"],
     flags => $hip_compiler . $hip_platform . $hsa_path . $rocm_path,
     funcs => $d_opencl_dir . $hip_clang_inc,
     pkgprefix => $rocclr_pkg,
-    misc => "", #"-DCMAKE_INCLUDE_PATH=\"$rocclr_pkg\"",
+    misc => "-DHIP_COMMON_DIR=\"$HIP_DIR\" -DAMD_OPENCL_PATH=\"$OPENCL_DIR\" -DROCCLR_PATH=\"$ROCCLR_DIR\""
   },
   ###################################
   # CXX=$ROCM_INSTALL_DIR/hip/bin/hipcc cmake \
@@ -183,18 +205,23 @@ my %conf = (
   #  $ROCM_GIT_DIR/rocFFT
   "rocFFT" =>
   { order => 10,
+    gitrepo => "https://github.com/ROCmSoftwarePlatform/rocFFT.git",
+    #gitbranch => "remotes/origin/release/rocm-rel-5.3",
+    cmake_defines => ["AMDGPU_TARGETS=\"$AMDGPU_TARGETS\"", "USE_HIP_CLANG=ON", "HIP_COMPILER=clang"]
   },
   ###################################
   # Prerequisite, check if gfortran is installed (f95 is on path)?
   "rocBLAS" =>
   { order => 11,
+    gitrepo => "https://github.com/ROCmSoftwarePlatform/rocBLAS.git",
     #flags => "-lpthread",
     cmake_defines => ["AMDGPU_TARGETS=\"$AMDGPU_TARGETS\"",
                       "ROCM_PATH=$ROCM_INSTALL_DIR",
                       "LLVM_INCLUDE_DIRS=$ROCM_INSTALL_DIR/llvm/include",
                       "LLVM_INSTALL_PREFIX=$ROCM_INSTALL_DIR/llvm",
+                      "USE_HIP_CLANG=ON", "HIP_COMPILER=clang",
                       "Tensile_LOGIC=asm_full",
-                      "Tensile_ARCHITECTURE=all",
+                      "Tensile_ARCHITECTURE=$AMDGPU_TARGETS",
                       "Tensile_CODE_OBJECT_VERSION=V3",
                       "Tensile_LIBRARY_FORMAT=yaml",
                       "RUN_HEADER_TESTING=OFF",
@@ -204,13 +231,29 @@ my %conf = (
     patch => ["run" => "rm -rf library/src/blas3/Tensile/Logic/asm_full/r9nano*"]
   },
   ###################################
-  # libhsa-runtime64.so is provided by ROCm-OpenCL-Runtime
-  # Needs top.hpp which is provided by ./ROCclr/include/top.hpp
-  "ROCm-OpenCL-Runtime" =>
-  { order => 18,
-    misc => "-DUSE_COMGR_LIBRARY=ON -Dhsa-runtime64_DIR=$ROCM_INSTALL_DIR/lib/cmake/hsa-runtime64 -DROCclr_DIR=$ROCM_INSTALL_DIR",
-    pkgprefix => "$ROCM_GIT_DIR/ROCm-OpenCL-Runtime/rocclr"
+  "rocRAND" =>
+  { order => 12,
+    flags => $hip_compiler . $hip_platform . $hsa_path . $rocm_path
   },
+  "clang-ocl" =>
+  { order => 13,
+    flags => $hip_compiler . $hip_platform . $hsa_path . $rocm_path
+  },
+  # needs clang-ocl
+  "MIOpen" =>
+  { order => 14,
+    flags => $hip_compiler . $hip_platform . $hsa_path . $rocm_path
+  },
+
+#  ###################################
+#  # libhsa-runtime64.so is provided by ROCm-OpenCL-Runtime
+#  # Needs top.hpp which is provided by ./ROCclr/include/top.hpp
+#  "ROCm-OpenCL-Runtime" =>
+#  { order => 18,
+#    gitrepo => "https://github.com/RadeonOpenCompute/ROCm-OpenCL-Runtime.git",
+#    misc => "-DUSE_COMGR_LIBRARY=ON -Dhsa-runtime64_DIR=$ROCM_INSTALL_DIR/lib/cmake/hsa-runtime64 -DROCclr_DIR=$ROCM_INSTALL_DIR",
+#    pkgprefix => "$ROCM_GIT_DIR/ROCm-OpenCL-Runtime/rocclr"
+#  },
   ###################################
   "roctracer" =>
   { order => 20,
@@ -271,11 +314,41 @@ if($apply_patches){
       last;
     }
   }
+  maybe_git_clone("dir", $what, %{$conf{$what}});
   print "Building $what.\n" if($verbose);
   build_system("dir", $what, %{$conf{$what}});
 }
     
 ###########################################################
+
+sub maybe_git_clone {
+  my %h = @_;
+  my $dir = $h{dir};
+  my $gitrepo = $h{gitrepo} || 0;
+  return if (-d "../$dir");
+  mydie("No git repo for $dir\n") if (! $gitrepo);
+  dir_push("..");
+  my $deprepos = $h{deprepos} || ();
+  if ($#$deprepos >= 0) {
+    gitcheckout_repos(@$deprepos);
+  }
+  git_clone_repo($gitrepo);
+  dir_pop();
+  printgreen("Successfully cloned $dir\n");
+}
+
+sub gitcheckout_repos {
+  my @deprepos = @_;
+  foreach my $repo (@deprepos) {
+    git_clone_repo($repo);
+  }
+}
+
+sub git_clone_repo {
+  my($url) = @_;
+  system("git clone $url --branch $gittag --single-branch");
+  mydie("Failed to clone repo $url") if($? != 0);
+}
 
 sub build_system {
   my %h = @_;
@@ -300,10 +373,11 @@ sub build_system {
   # But from then on, and especially when building rocblas use LLVM
   # (since that has been built with GPU architecture support).
   if($compiler ne "use-system"){
-    $flags .= " -DCMAKE_C_COMPILER=$ROCM_INSTALL_DIR/llvm/bin/clang";
-    $flags .= " -DCMAKE_CXX_COMPILER=$ROCM_INSTALL_DIR/llvm/bin/clang++";
+    #$flags .= " -DCMAKE_C_COMPILER=$ROCM_INSTALL_DIR/llvm/bin/clang";
+    #$flags .= " -DCMAKE_CXX_COMPILER=$ROCM_INSTALL_DIR/llvm/bin/clang++";
+    $flags .= " -DCMAKE_CXX_COMPILER=$ROCM_INSTALL_DIR/bin/hipcc"; # Needed for rocRANDR and rocBLAS
   }
-  dir_push($dir);
+  dir_push("$rocm_src_dir/$dir");
 
   if(! $build_continue) {
     system("rm -rf build");
@@ -316,9 +390,8 @@ sub build_system {
     print "RUN CMAKE: $str\n" if($verbose);
     cmd($str);
   }
-
-  cmd("make -j $makethreads V=1 2>&1 | tee l");
-  cmd("make install");
+  cmd("cmake --build . --parallel $makethreads 2>&1 | tee l");
+  cmd("cmake --install .");
   dir_pop();
   printgreen("Successfully built $dir\n");
 }
